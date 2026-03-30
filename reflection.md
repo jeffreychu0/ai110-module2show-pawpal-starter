@@ -113,10 +113,16 @@ On a scale of 1-5, I feel relatively confident (4/5) that it works correctly. I 
 
 - What part of this project are you most satisfied with?
 
+I felt incredibly satisfied to see the app fully functional with the UI. Happy that a lot of my work with the help of AI was translated to create a project
+
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
 
+I would focus more on UI design. It was one of the features I hadn't had a lot of time to work towards
+
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
+
+Using AI to help with designing systems and working through projects can be really efficient, as long as everything is tested and vaildated correctly.

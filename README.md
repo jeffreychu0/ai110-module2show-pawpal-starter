@@ -1,43 +1,77 @@
 # PawPal+ (Module 2 Project)
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+PawPal+ is a pet care scheduling tool implemented in Python, designed as a Streamlit app (entrypoint in `app.py`).
+It helps pet owners manage pets, tasks, and daily schedule generation with priority handling.
 
-## Scenario
+<a href="final_app.png" target="_blank"><img src='final_app.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>.
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+## ✅ Implemented features
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+### Core domain objects (`pawpal_system.py`)
+- `Owner` with:
+  - `id: UUID`, `name: str`, `pets: List[Pet]`
+  - `add_pet(pet: Pet)`
+  - `get_pet(pet_id: UUID) -> Optional[Pet]`
+  - `find_pet_by_name(pet_name: str) -> Optional[Pet]`
+- `Pet` with:
+  - `id: UUID`, `name: str`, `age: int`, `tasks: List[Task]`
+  - `assign_task(task: Task)`
+  - `get_task(task_id: UUID) -> Optional[Task]`
+  - `complete_task(task_id: UUID) -> bool`
+  - `uncomplete_task(task_id: UUID) -> bool`
+  - `remove_task(task_id: UUID) -> bool`
+- `Task` with:
+  - `id: UUID`, `name: str`, `description: str`, `duration: float`, `priority: int`, `complete: bool`
+  - `mark_complete()` / `mark_incomplete()`
+  - `update(...)`
+- `Schedule` with:
+  - `day: date`, `task_list: List[Task]`
+  - `add_task(task: Task)`
+  - `remove_task(task_id: UUID) -> bool`
+  - `generate() -> List[Task]` (priority-based sorting)
+  - `clear()`
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+### Task operations
+- Add/remove tasks by UUID for deterministic behavior (no duplicate name ambiguity)
+- Mark tasks complete/uncomplete
+- Update task details (name, description, duration, priority)
 
-## What you will build
+### Schedule generation
+- Sort by uncompleted tasks first, then highest priority, then shorter duration
+- Provides a simple base plan for a given day
 
-Your final app should:
+## 📁 Project structure
+- `app.py` - Streamlit UI + interaction layer
+- `pawpal_system.py` - domain + scheduler logic
+- `reflection.md` - design reflection and notes
+- `requirements.txt` - dependencies
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+## 🚀 Quickstart
 
-## Getting started
-
-### Setup
+1. Create venv and install:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+.venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 ```
 
-### Suggested workflow
+2. Run app:
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
+```bash
+streamlit run app.py
+```
+
+## 🧪 Testing
+- Add tests (e.g., `test_pawpal_system.py`) for:
+  - task lifecycle (add, complete, uncomplete, remove)
+  - schedule generation and ordering
+  - owner/pet lookups
+
+## 🛠️ Future enhancements
+- UI forms for task editing and deletion
+- persistence layer (JSON/SQLite)
+- constraints like maximum time block, availability windows
+- explanation text for why schedule order was chosen
+- multi-pet combined day planning
+
