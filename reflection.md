@@ -7,6 +7,45 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+This was the actions and classes given for the UML:
+
+3 core actions a user should be able to do:
+1: Add Pets
+2: List the uncompleted and total daily tasks
+3: Add or Delete tasks as necessary
+
+Objects and Attributes
+- Pet
+    Name
+    Age
+    Tasks
+
+    assign_task()
+    complete_task()
+
+- Tasks
+    Complete
+    Name
+    Description
+    Duration
+    Priority
+
+    add_task()
+    edit_task()
+    delete_task()
+
+- Owner
+    Name
+    Pets
+
+    add_pet();
+
+- Schedule
+    task_list w/ times
+    day
+
+    generate();
+
 **b. Design changes**
 
 - Did your design change during implementation?
