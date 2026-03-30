@@ -794,3 +794,188 @@ class TestSchedulerNewFeatures:
                            scheduled_time=time(9, 0), start_date=today))
         owner.add_pet(p)
         assert Scheduler(owner=owner).detect_conflicts(today) == []
+
+
+# ============================================================
+# Sorting Correctness -- chronological (scheduled_time) ordering
+# ============================================================
+
+class TestSortingChronological:
+    """Verify Schedule.generate() orders tasks by scheduled_time when
+    all other sort keys (completion, priority, frequency, duration) are equal."""
+
+    def _sched(self, *tasks):
+        s = Schedule(day=date.today())
+        for t in tasks:
+            s.add_task(t)
+        return s
+
+    def test_earlier_scheduled_time_comes_first(self):
+        # Added in reverse order; generate() should sort by time
+        late  = Task(name="Late",  duration=0.5, priority=3, frequency="daily",
+                     scheduled_time=time(10, 0))
+        early = Task(name="Early", duration=0.5, priority=3, frequency="daily",
+                     scheduled_time=time(8, 0))
+        ordered = self._sched(late, early).generate()
+        names = [t.name for t in ordered]
+        assert names.index("Early") < names.index("Late")
+
+    def test_three_tasks_in_time_order(self):
+        t1 = Task(name="T1", duration=0.5, priority=3, frequency="daily",
+                  scheduled_time=time(7, 0))
+        t2 = Task(name="T2", duration=0.5, priority=3, frequency="daily",
+                  scheduled_time=time(9, 0))
+        t3 = Task(name="T3", duration=0.5, priority=3, frequency="daily",
+                  scheduled_time=time(11, 0))
+        # Add out-of-order: T3, T1, T2
+        ordered = self._sched(t3, t1, t2).generate()
+        names = [t.name for t in ordered]
+        assert names == ["T1", "T2", "T3"]
+
+    def test_priority_still_beats_earlier_time(self):
+        # High-priority later task should still precede low-priority earlier task
+        low_early  = Task(name="LowEarly",  duration=0.5, priority=1,
+                          frequency="daily", scheduled_time=time(7, 0))
+        high_late  = Task(name="HighLate",  duration=0.5, priority=5,
+                          frequency="daily", scheduled_time=time(12, 0))
+        ordered = self._sched(low_early, high_late).generate()
+        assert ordered[0].name == "HighLate"
+
+    def test_tasks_without_scheduled_time_stable_after_timed(self):
+        # Untimed tasks have no scheduled_time; they should not crash generate()
+        timed   = Task(name="Timed",   duration=0.5, priority=3, frequency="daily",
+                       scheduled_time=time(8, 0))
+        untimed = Task(name="Untimed", duration=0.5, priority=3, frequency="daily")
+        ordered = self._sched(timed, untimed).generate()
+        assert len(ordered) == 2   # both present, no crash
+
+    def test_empty_schedule_returns_empty_list(self):
+        assert Schedule(day=date.today()).generate() == []
+
+
+# ============================================================
+# Recurrence Logic -- daily task spawns next-day copy on completion
+# ============================================================
+
+class TestDailyRecurrenceEndToEnd:
+    """Confirm the full loop: complete a daily task → new task appears
+    with start_date advanced by exactly one day and ready for tomorrow."""
+
+    def _setup(self, today):
+        owner = Owner(name="Alex")
+        pet = Pet(name="Buddy", age=2)
+        task = Task(name="Morning Walk", frequency="daily",
+                    priority=4, duration=0.5,
+                    start_date=today, scheduled_time=time(7, 30))
+        pet.assign_task(task)
+        owner.add_pet(pet)
+        return Scheduler(owner=owner), pet, task
+
+    def test_completing_daily_task_adds_next_day_task(self):
+        today = date.today()
+        _, pet, task = self._setup(today)
+        pet.complete_task(task.id)
+        assert len(pet.tasks) == 2
+        spawned = pet.tasks[-1]
+        assert spawned.start_date == today + timedelta(days=1)
+
+    def test_spawned_task_is_incomplete(self):
+        today = date.today()
+        _, pet, task = self._setup(today)
+        pet.complete_task(task.id)
+        assert pet.tasks[-1].complete is False
+
+    def test_spawned_task_has_different_id(self):
+        today = date.today()
+        _, pet, task = self._setup(today)
+        pet.complete_task(task.id)
+        assert pet.tasks[-1].id != task.id
+
+    def test_spawned_task_appears_in_tomorrows_schedule(self):
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        scheduler, pet, task = self._setup(today)
+        pet.complete_task(task.id)
+        schedule = scheduler.build_schedule(tomorrow)
+        names = [t.name for t in schedule.task_list]
+        assert "Morning Walk" in names
+
+    def test_original_task_excluded_from_tomorrows_schedule(self):
+        today = date.today()
+        tomorrow = today + timedelta(days=1)
+        scheduler, pet, task = self._setup(today)
+        pet.complete_task(task.id)
+        schedule = scheduler.build_schedule(tomorrow)
+        # The original (complete) task should not appear
+        task_ids = [t.id for t in schedule.task_list]
+        assert task.id not in task_ids
+
+    def test_reset_recurring_does_not_uncomplete_spawned_task(self):
+        # The spawned (tomorrow's) task should not be reset on today's call
+        today = date.today()
+        scheduler, pet, task = self._setup(today)
+        pet.complete_task(task.id)
+        spawned = pet.tasks[-1]
+        # reset for today should reset today's (now complete) task
+        scheduler.reset_recurring_tasks(today)
+        # spawned task's start_date is tomorrow, so it is NOT reset today
+        assert spawned.complete is False   # was already False, still False
+
+
+# ============================================================
+# Conflict Detection -- Scheduler flags identical scheduled times
+# ============================================================
+
+class TestSchedulerDuplicateTimeConflicts:
+    """Verify that Scheduler.detect_conflicts() and find_time_conflicts()
+    flag tasks scheduled at the exact same start time."""
+
+    def _scheduler_with_times(self, time_a, time_b):
+        today = date.today()
+        owner = Owner(name="Alex")
+        pet = Pet(name="Buddy", age=2)
+        pet.assign_task(Task(name="Task A", frequency="daily", duration=0.5,
+                             start_date=today, scheduled_time=time_a))
+        pet.assign_task(Task(name="Task B", frequency="daily", duration=0.5,
+                             start_date=today, scheduled_time=time_b))
+        owner.add_pet(pet)
+        return Scheduler(owner=owner)
+
+    def test_identical_start_times_flagged_by_find_time_conflicts(self):
+        scheduler = self._scheduler_with_times(time(9, 0), time(9, 0))
+        pairs = scheduler.find_time_conflicts(date.today())
+        assert len(pairs) == 1
+        names = {t.name for t in pairs[0]}
+        assert names == {"Task A", "Task B"}
+
+    def test_identical_start_times_flagged_by_detect_conflicts(self):
+        scheduler = self._scheduler_with_times(time(9, 0), time(9, 0))
+        msgs = scheduler.detect_conflicts(date.today())
+        assert any("Time overlap" in m for m in msgs)
+
+    def test_identical_start_times_message_names_both_tasks(self):
+        scheduler = self._scheduler_with_times(time(9, 0), time(9, 0))
+        msgs = scheduler.detect_conflicts(date.today())
+        overlap_msgs = [m for m in msgs if "Time overlap" in m]
+        assert any("Task A" in m and "Task B" in m for m in overlap_msgs)
+
+    def test_non_overlapping_times_not_flagged(self):
+        scheduler = self._scheduler_with_times(time(8, 0), time(9, 0))
+        assert scheduler.find_time_conflicts(date.today()) == []
+
+    def test_cross_pet_identical_times_flagged(self):
+        today = date.today()
+        owner = Owner(name="Alex")
+        p1 = Pet(name="Buddy", age=2)
+        p2 = Pet(name="Luna",  age=3)
+        p1.assign_task(Task(name="Walk",  frequency="daily", duration=0.5,
+                            start_date=today, scheduled_time=time(8, 0)))
+        p2.assign_task(Task(name="Feed",  frequency="daily", duration=0.5,
+                            start_date=today, scheduled_time=time(8, 0)))
+        owner.add_pet(p1)
+        owner.add_pet(p2)
+        scheduler = Scheduler(owner=owner)
+        pairs = scheduler.find_time_conflicts(today)
+        assert len(pairs) == 1
+        names = {t.name for t in pairs[0]}
+        assert names == {"Walk", "Feed"}

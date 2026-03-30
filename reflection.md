@@ -78,10 +78,14 @@ The AI made a tradeoff for readability for python syntax, for some situations, t
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
+AI was used for design brainstorming, feature building, and test creation. It was helpful in debuggin various errors
+
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
+
+Whenever the AI was creating test cases, it began writing its test cases in main instead of the /test repo. I evaluated it to be incorrect and asked AI to remove its changes in main and work on test instead.
 
 ---
 
@@ -92,10 +96,14 @@ The AI made a tradeoff for readability for python syntax, for some situations, t
 - What behaviors did you test?
 - Why were these tests important?
 
+I worked on testing various class methods, schedule generation, auto generation, sorting and conflicts. One of these tests had worked in finding a bug that was present in the code, which was fixed shortly after 
+
 **b. Confidence**
 
 - How confident are you that your scheduler works correctly?
 - What edge cases would you test next if you had more time?
+
+On a scale of 1-5, I feel relatively confident (4/5) that it works correctly. I had read through all of the test cases and ensured that they made sense. There is a chance I had missed a test case that reveals a bug, but overall I feel pretty confident. 
 
 ---
 

@@ -380,7 +380,13 @@ class Schedule:
         """
         return sorted(
             self.task_list,
-            key=lambda t: (t.complete, -t.priority, _FREQ_ORDER.get(t.frequency, 4), t.duration),
+            key=lambda t: (
+                t.complete,
+                -t.priority,
+                _FREQ_ORDER.get(t.frequency, 4),
+                t.duration,
+                t.scheduled_time if t.scheduled_time is not None else time.max,
+            ),
         )
 
     def clear(self) -> None:
