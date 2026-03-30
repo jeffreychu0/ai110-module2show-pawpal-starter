@@ -12,9 +12,14 @@ Classes:
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import date
-from typing import List, Optional
+from datetime import date, datetime, time, timedelta
+from typing import List, Optional, Tuple
 from uuid import UUID, uuid4
+
+# Maps frequency strings to urgency order (lower = higher urgency).
+# Used as a sort tiebreaker: a daily task outranks a weekly one at
+# equal priority.
+_FREQ_ORDER = {"daily": 0, "weekly": 1, "monthly": 2, "as_needed": 3}
 
 
 @dataclass
@@ -39,6 +44,39 @@ class Task:
     priority: int = 1            # 1 (low) .. 5 (high)
     frequency: str = "daily"     # "daily" | "weekly" | "monthly" | "as_needed"
     complete: bool = False
+    start_date: date = field(default_factory=date.today)  # anchor day for recurrence
+    scheduled_time: Optional[time] = None                 # wall-clock start time, if assigned
+
+    def next_occurrence(self) -> Optional[Task]:
+        """Return a new Task for the next scheduled occurrence of this task.
+
+        Copies all attributes except ``id`` (fresh UUID), ``complete``
+        (always ``False``), and ``start_date`` (advanced by one period):
+
+        - ``"daily"``    -- ``start_date + 1 day``
+        - ``"weekly"``   -- ``start_date + 7 days``
+        - ``"monthly"``  -- returns ``None`` (no auto-spawn)
+        - ``"as_needed"``-- returns ``None`` (no auto-spawn)
+
+        Returns:
+            Task: A new incomplete Task anchored to the next occurrence,
+            or ``None`` if this frequency does not auto-recur.
+        """
+        if self.frequency == "daily":
+            next_start = self.start_date + timedelta(days=1)
+        elif self.frequency == "weekly":
+            next_start = self.start_date + timedelta(weeks=1)
+        else:
+            return None
+        return Task(
+            name=self.name,
+            description=self.description,
+            duration=self.duration,
+            priority=self.priority,
+            frequency=self.frequency,
+            start_date=next_start,
+            scheduled_time=self.scheduled_time,
+        )
 
     def mark_complete(self) -> None:
         """Mark this task as completed.
@@ -130,7 +168,12 @@ class Pet:
         return next((t for t in self.tasks if t.id == task_id), None)
 
     def complete_task(self, task_id: UUID) -> bool:
-        """Mark a task as complete.
+        """Mark a task as complete and schedule the next occurrence.
+
+        After marking the task complete, calls :meth:`Task.next_occurrence`.
+        If a next occurrence is returned (``"daily"`` and ``"weekly"``
+        frequencies), the new Task is appended to this pet's task list so
+        the recurring duty is never lost.
 
         Args:
             task_id (UUID): The id of the task to complete.
@@ -142,6 +185,9 @@ class Pet:
         task = self.get_task(task_id)
         if task:
             task.mark_complete()
+            next_task = task.next_occurrence()
+            if next_task is not None:
+                self.tasks.append(next_task)
             return True
         return False
 
@@ -332,11 +378,80 @@ class Schedule:
         Returns:
             List[Task]: A new sorted list; ``task_list`` is not modified.
         """
-        return sorted(self.task_list, key=lambda t: (t.complete, -t.priority, t.duration))
+        return sorted(
+            self.task_list,
+            key=lambda t: (t.complete, -t.priority, _FREQ_ORDER.get(t.frequency, 4), t.duration),
+        )
 
     def clear(self) -> None:
         """Remove all tasks from this schedule."""
         self.task_list.clear()
+
+    def time_conflicts(self) -> List[Tuple[Task, Task]]:
+        """Return pairs of tasks whose scheduled time windows overlap.
+
+        Only tasks with a ``scheduled_time`` set are compared. Two tasks
+        conflict when their half-open intervals overlap:
+        ``[start, start + duration)`` intersects ``[other_start, other_start + other_duration)``,
+        which is true when ``a_start < b_end and b_start < a_end``.
+
+        Tasks belonging to the same pet and tasks belonging to different
+        pets are compared equally — the owner's time is the shared resource.
+
+        Returns:
+            List[Tuple[Task, Task]]: Each tuple holds the two conflicting
+            Task objects in schedule order. Empty list if no overlaps exist
+            or no tasks have a ``scheduled_time`` set.
+        """
+        timed = [t for t in self.task_list if t.scheduled_time is not None]
+        pairs: List[Tuple[Task, Task]] = []
+        _anchor = date.min  # fixed dummy date so datetime arithmetic works
+        for i in range(len(timed)):
+            for j in range(i + 1, len(timed)):
+                a, b = timed[i], timed[j]
+                a_start = datetime.combine(_anchor, a.scheduled_time)
+                a_end   = a_start + timedelta(hours=a.duration)
+                b_start = datetime.combine(_anchor, b.scheduled_time)
+                b_end   = b_start + timedelta(hours=b.duration)
+                if a_start < b_end and b_start < a_end:
+                    pairs.append((a, b))
+        return pairs
+
+    def conflicts(self, daily_cap_hours: float = 24.0) -> List[str]:
+        """Return a list of conflict descriptions for this schedule.
+
+        Checks performed:
+
+        1. Total task duration exceeds *daily_cap_hours*.
+        2. Duplicate task names (case-insensitive) in the schedule.
+
+        Args:
+            daily_cap_hours (float): Maximum hours available in the day.
+                Defaults to ``24.0``.
+
+        Returns:
+            List[str]: Human-readable conflict messages; empty if none.
+        """
+        issues: List[str] = []
+        total = sum(t.duration for t in self.task_list)
+        if total > daily_cap_hours:
+            issues.append(
+                f"Total duration {total:.1f}h exceeds daily cap of {daily_cap_hours:.1f}h"
+            )
+        seen: set = set()
+        for task in self.task_list:
+            key = task.name.lower()
+            if key in seen:
+                issues.append(f"Duplicate task name in schedule: '{task.name}'")
+            seen.add(key)
+        for task_a, task_b in self.time_conflicts():
+            a_t = task_a.scheduled_time.strftime("%H:%M")
+            b_t = task_b.scheduled_time.strftime("%H:%M")
+            issues.append(
+                f"Time overlap: '{task_a.name}' (@{a_t}, {task_a.duration}h) "
+                f"conflicts with '{task_b.name}' (@{b_t}, {task_b.duration}h)"
+            )
+        return issues
 
     def __str__(self) -> str:
         """Return a formatted multi-line view of today's schedule.
@@ -430,6 +545,30 @@ class Scheduler:
         """
         return [t for t in self.get_all_tasks() if t.frequency == frequency]
 
+    def filter_tasks(
+        self,
+        pet_id: Optional[UUID] = None,
+        status: Optional[bool] = None,
+    ) -> List[Task]:
+        """Return tasks filtered by pet and/or completion status.
+
+        Both filters are optional and can be combined. Passing neither
+        argument returns every task across all pets.
+
+        Args:
+            pet_id (UUID, optional): When provided, only tasks belonging
+                to this pet are considered.
+            status (bool, optional): ``True`` → complete tasks only;
+                ``False`` → incomplete tasks only; ``None`` → both.
+
+        Returns:
+            List[Task]: Tasks matching all supplied filters.
+        """
+        tasks = self.get_tasks_for_pet(pet_id) if pet_id is not None else self.get_all_tasks()
+        if status is not None:
+            tasks = [t for t in tasks if t.complete == status]
+        return tasks
+
     # ------------------------------------------------------------------
     # Schedule building
     # ------------------------------------------------------------------
@@ -459,13 +598,82 @@ class Scheduler:
         for task in self.get_pending_tasks():
             if task.frequency == "daily":
                 schedule.add_task(task)
-            elif task.frequency == "weekly" and day.weekday() == date.today().weekday():
+            elif task.frequency == "weekly" and day.weekday() == task.start_date.weekday():
                 schedule.add_task(task)
-            elif task.frequency == "monthly" and day.day == date.today().day:
+            elif task.frequency == "monthly" and day.day == task.start_date.day:
                 schedule.add_task(task)
             elif task.frequency == "as_needed":
                 schedule.add_task(task)
         return schedule
+
+    def reset_recurring_tasks(self, day: date) -> int:
+        """Reset completed recurring tasks that are due again on *day*.
+
+        Only tasks whose recurrence period has rolled over are touched:
+
+        - ``"daily"``    -- always reset (fires every new day).
+        - ``"weekly"``   -- reset when *day*'s weekday matches the task's
+          ``start_date`` weekday.
+        - ``"monthly"``  -- reset when *day*'s day-of-month matches the
+          task's ``start_date`` day-of-month.
+        - ``"as_needed"``-- never auto-reset; the owner marks manually.
+
+        Args:
+            day (date): The date representing the current scheduling day.
+
+        Returns:
+            int: Number of tasks reset to incomplete.
+        """
+        count = 0
+        for task in self.get_all_tasks():
+            if not task.complete:
+                continue
+            if task.frequency == "daily":
+                task.mark_incomplete()
+                count += 1
+            elif task.frequency == "weekly" and day.weekday() == task.start_date.weekday():
+                task.mark_incomplete()
+                count += 1
+            elif task.frequency == "monthly" and day.day == task.start_date.day:
+                task.mark_incomplete()
+                count += 1
+        return count
+
+    def detect_conflicts(self, day: date, daily_cap_hours: float = 24.0) -> List[str]:
+        """Detect scheduling conflicts for *day*.
+
+        Builds the schedule for *day* and delegates to
+        :meth:`Schedule.conflicts` for conflict analysis. Includes both
+        duration-cap/duplicate checks and any time-window overlaps.
+
+        Args:
+            day (date): The date to inspect.
+            daily_cap_hours (float): Hour budget for the day (default 24.0).
+
+        Returns:
+            List[str]: Human-readable conflict messages; empty if none.
+        """
+        return self.build_schedule(day).conflicts(daily_cap_hours)
+
+    def find_time_conflicts(self, day: date) -> List[Tuple[Task, Task]]:
+        """Return all time-overlapping task pairs scheduled for *day*.
+
+        Builds the schedule for *day* and delegates to
+        :meth:`Schedule.time_conflicts`. Useful when callers need the
+        actual Task objects rather than formatted strings.
+
+        Tasks from the same pet and from different pets are compared; the
+        owner's time is the shared resource being checked.
+
+        Args:
+            day (date): The date to inspect.
+
+        Returns:
+            List[Tuple[Task, Task]]: Pairs of overlapping tasks. Empty
+            list if no conflicts exist or no tasks have a
+            ``scheduled_time`` set.
+        """
+        return self.build_schedule(day).time_conflicts()
 
     # ------------------------------------------------------------------
     # Summary

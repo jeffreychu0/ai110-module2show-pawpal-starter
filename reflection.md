@@ -61,11 +61,14 @@ A few changes were made as suggested by the AI. One of the few changes I made in
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
 
+the scheduler considers incomplete, higher priority, shorter tasks. These were chosen because it allows for more incomplete tasks to be done that are important
+
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+The AI made a tradeoff for readability for python syntax, for some situations, this tradeoff is worth it especially when dealing with larger repositories and for developers more versed in python
 ---
 
 ## 3. AI Collaboration
