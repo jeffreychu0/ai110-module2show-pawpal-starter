@@ -51,6 +51,7 @@ Objects and Attributes
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
+A few changes were made as suggested by the AI. One of the few changes I made includes creating a uncomplete_task method for pets.
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
